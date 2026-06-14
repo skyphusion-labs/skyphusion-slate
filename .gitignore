@@ -1,0 +1,6 @@
+node_modules/
+stacks/.env
+*.log
+search-worker/node_modules/
+search-worker/.wrangler/
+search-worker/dist/

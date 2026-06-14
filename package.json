@@ -1,0 +1,17 @@
+{
+  "name": "slate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Slate -- Vivijure Screenwriter's Assistant for Discord",
+  "scripts": {
+    "bot": "node bot.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.55",
+    "discord.js": "^14"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
