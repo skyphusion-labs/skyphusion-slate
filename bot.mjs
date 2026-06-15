@@ -445,8 +445,24 @@ Schema to return:
   "scenes": [{ "id": string, "prompt": string, "act": string | null, "character_slots": string[], "target_seconds": number | null }]
 }`;
 
+  // Flatten the recent conversation into a single user message. Passing the raw
+  // history as alternating turns can end on an assistant message, which Claude
+  // rejects ("conversation must end with a user message"); a single user turn
+  // also sidesteps role-alternation and image-block issues during extraction.
+  const convoText = recentHistory
+    .filter(m => m.role !== 'system')
+    .map(m => {
+      const text = typeof m.content === 'string'
+        ? m.content
+        : (Array.isArray(m.content) ? m.content.filter(b => b.type === 'text').map(b => b.text).join('\n') : '');
+      return `${m.role === 'user' ? 'User' : 'Slate'}: ${text}`;
+    })
+    .join('\n\n');
+
   try {
-    const raw = await callAI(extractPrompt, recentHistory.filter(m => m.role !== 'system'));
+    const raw = await callAI(extractPrompt, [
+      { role: 'user', content: `Conversation so far:\n\n${convoText}\n\nReturn the updated storyboard brief as a single JSON object now.` },
+    ]);
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return;
     const updated = JSON.parse(match[0]);
