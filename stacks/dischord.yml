@@ -44,3 +44,4 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://wendy.internal:11434/v1}
       SEARCH_WORKER_URL: ${SEARCH_WORKER_URL:-}
       SEARCH_SECRET: ${SEARCH_SECRET:-}
+      TRUSTED_BOT_IDS: ${TRUSTED_BOT_IDS:-}
