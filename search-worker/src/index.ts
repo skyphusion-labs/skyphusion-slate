@@ -105,9 +105,51 @@ async function handleSearch(req: Request, env: Env): Promise<Response> {
 // CF Browser Rendering (puppeteer)
 // ---------------------------------------------------------------------------
 
+// Returns false for schemes other than http/https, and for hosts that map to
+// loopback, private, link-local, metadata, or mesh-internal addresses.
+// Covers common prompt-injection SSRF vectors (literal IPs + reserved names);
+// does not handle DNS rebinding or decimal-encoded IPs.
+function isSsrfSafe(raw: string): boolean {
+  let parsed: URL;
+  try { parsed = new URL(raw); } catch { return false; }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+
+  const host = parsed.hostname.toLowerCase();
+
+  if (host === "localhost" || host.endsWith(".internal") || host.endsWith(".local")) return false;
+
+  const v4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (v4) {
+    const [a, b] = [+v4[1], +v4[2]];
+    if (
+      a === 0                              ||  // 0/8 unspecified
+      a === 10                             ||  // 10/8 RFC1918
+      a === 127                            ||  // 127/8 loopback
+      (a === 100 && b >= 64 && b <= 127)   ||  // 100.64/10 CGNAT / WARP mesh
+      (a === 169 && b === 254)             ||  // 169.254/16 link-local + cloud metadata
+      (a === 172 && b >= 16 && b <= 31)    ||  // 172.16/12 RFC1918
+      (a === 192 && b === 168)             ||  // 192.168/16 RFC1918
+      (a === 198 && (b === 18 || b === 19)) || // 198.18/15 benchmark
+      a >= 240                                  // 240/4 reserved
+    ) return false;
+  }
+
+  // Literal IPv6 (URL hostname strips brackets)
+  if (
+    host === "::" || host === "::1"  ||  // unspecified / loopback
+    host.startsWith("fe80:")          ||  // link-local
+    host.startsWith("fc")             ||  // unique local fc00::/7
+    host.startsWith("fd")                 // unique local fd00::/8
+  ) return false;
+
+  return true;
+}
+
 async function handleFetch(req: Request, env: Env): Promise<Response> {
   const { url } = await req.json() as { url: string };
   if (!url) return err("url is required");
+  if (!isSsrfSafe(url)) return err("URL not allowed: must be a public http/https address", 400);
 
   const browser = await puppeteer.launch(env.BROWSER);
   try {
