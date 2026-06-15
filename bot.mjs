@@ -1010,8 +1010,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 // Message handler
 // ---------------------------------------------------------------------------
 
+// Bot IDs trusted to interact with Slate (must be explicit to prevent loops).
+// Strummer relay bot (crew testing): 1515956000572833923
+const TRUSTED_BOTS = new Set(['1515956000572833923']);
+
 client.on(Events.MessageCreate, async (message) => {
-  if (message.author.bot) return;
+  if (message.author.id === client.user.id) return;
+  if (message.author.bot && !TRUSTED_BOTS.has(message.author.id)) return;
 
   const isDM         = !message.guild;
   const isMentioned  = message.mentions.has(client.user);
