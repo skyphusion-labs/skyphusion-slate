@@ -107,8 +107,9 @@ async function handleSearch(req: Request, env: Env): Promise<Response> {
 
 // Returns false for schemes other than http/https, and for hosts that map to
 // loopback, private, link-local, metadata, or mesh-internal addresses.
-// Covers common prompt-injection SSRF vectors (literal IPs + reserved names);
-// does not handle DNS rebinding or decimal-encoded IPs.
+// Covers literal IPs -- decimal/hex/short-form normalize to dotted-quad via the
+// WHATWG URL parser before our check -- and reserved names. Residual gap: DNS
+// rebinding (public name -> private A record) requires resolving the host first.
 function isSsrfSafe(raw: string): boolean {
   let parsed: URL;
   try { parsed = new URL(raw); } catch { return false; }
@@ -138,6 +139,7 @@ function isSsrfSafe(raw: string): boolean {
   // Literal IPv6 (URL hostname strips brackets)
   if (
     host === "::" || host === "::1"  ||  // unspecified / loopback
+    host.startsWith("::ffff:")        ||  // IPv4-mapped (::ffff:7f00:1, ::ffff:127.0.0.1, etc.)
     host.startsWith("fe80:")          ||  // link-local
     host.startsWith("fc")             ||  // unique local fc00::/7
     host.startsWith("fd")                 // unique local fd00::/8
