@@ -3,6 +3,30 @@
 Notable changes per release. SemVer-style (pre-1.0: PATCH for fixes / backend-only tweaks, MINOR
 for new features). Newest first.
 
+## v0.2.0 (unreleased)
+
+The assistant gains render range. Slate can now carry the group's full finishing choices to the
+studio API, so the web control panel is not needed to render a film:
+
+- **Render backend** (`!backend` / `/backend`) -- choose own GPU vs cloud i2v, or `auto` to let the
+  studio decide (the default). Backend names are projected live from the studio registry
+  (`GET /api/modules` `hooks["motion.backend"]`), never hardcoded.
+- **Title + credit cards** (`!titlecard` / `/titlecard`) -- set an opening title (with optional
+  subtitle) and end credits; mapped to the studio `film_titles` contract (matches vivijure PR #273).
+- **Quality tier on the brief** -- the project's tier (draft-first) is the `!render` default; the
+  tier is validated against the registry's projected `quality_tiers` at submit time, falling back to
+  the registry default rather than inventing a tier the studio does not advertise.
+- **Multi-character refs auto-fill** (issue #17) -- a `>1`-character film auto-derives any missing
+  `characterRefs` before submit (generate + sync + upload the portrait), or blocks with a clear
+  message naming who still needs a look, instead of letting the backend bounce the bundle.
+- **Smart prompt trim** (issue #16) -- over-long scene prompts are trimmed to the 50-word renderer
+  cap keeping the opening (motion-critical) clause, with a heads-up to the group instead of a silent
+  truncate.
+
+Render settings (backend, tier, title/credit cards) live on the storyboard brief and round-trip
+through D1. Slate runs no render logic of its own; it is a thin, registry-projecting client of the
+studio API.
+
 ## v0.1.0
 
 First public release of **Slate**, the collaborative screenwriter's assistant for the Vivijure AI
