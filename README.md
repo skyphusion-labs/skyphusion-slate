@@ -4,17 +4,101 @@
 
 > Slate started as a simple Discord-to-ollama relay and was redesigned and substantially extended by [Claude Sonnet 4.6](https://anthropic.com) (operating as Strummer, SkyPhusion's AI crew member) into the full platform assistant it is today. The architecture, feature set, knowledge base, search integration, vision support, slash commands, render pipeline, and D1 session persistence were all designed and implemented by Claude as part of the SkyPhusion AI-collaborative development workflow.
 
-## Ecosystem
+## The Vivijure ecosystem
+
+Vivijure is an AI film studio built as a thin control plane plus opt-in GPU modules. These repos
+form the constellation; this block is identical in each so the whole map is visible from any one of
+them.
 
 ```
-slate  -->  vivijure  -->  vivijure-backend
+   friends + Slate (Discord)
+            |
+            v
+        slate  -->  vivijure (studio control plane / JSON API)
+                        |
+                        v
+                  vivijure-backend (GPU render: keyframes -> i2v -> assemble)
+                        |
+            +-----------+-----------------------------+
+            |           |               |             |
+            v           v               v             v
+     vivijure-     vivijure-       vivijure-      (more finish
+     musetalk      upscale         audio-upscale   modules over time)
+   (lip-sync)    (video upscale)  (speech enhance)
 ```
 
 | Repo | Role |
 |---|---|
-| **[slate](https://github.com/skyphusion-labs/slate)** | **Collaborative AI screenwriter Discord bot -- shapes the film in-channel, then hands it to vivijure to render** |
-| [vivijure](https://github.com/skyphusion-labs/vivijure) | AI film studio control plane (Cloudflare Worker) -- planner, cast, render UI; orchestrates render jobs |
-| [vivijure-backend](https://github.com/skyphusion-labs/vivijure-backend) | GPU render backend (RunPod serverless) -- SDXL keyframes, i2v, finish, assemble |
+| [slate](https://github.com/skyphusion-labs/slate) | Collaborative AI screenwriter assistant for Discord. Friends and Slate co-author a film in-channel; Slate then submits it to the studio entirely through the vivijure JSON API. |
+| [vivijure](https://github.com/skyphusion-labs/vivijure) | The studio control plane (a Cloudflare Worker): planner, cast, and render UI plus the JSON API. A thin module host that orchestrates render jobs behind a typed hook contract. |
+| [vivijure-backend](https://github.com/skyphusion-labs/vivijure-backend) | The GPU render backend (RunPod serverless): SDXL keyframes, Wan image-to-video, and ffmpeg assembly. The half that turns a storyboard bundle into a film. |
+| [vivijure-musetalk](https://github.com/skyphusion-labs/vivijure-musetalk) | MuseTalk audio-driven lip-sync GPU module (finish-class). Syncs a character's mouth to dialogue audio. |
+| [vivijure-upscale](https://github.com/skyphusion-labs/vivijure-upscale) | Real-ESRGAN CUDA video-upscale GPU module (finish-class). Raises the assembled film's resolution. |
+| [vivijure-audio-upscale](https://github.com/skyphusion-labs/vivijure-audio-upscale) | CUDA speech-audio enhancement (resemble-enhance) GPU module. The GPU half of the cost-aware audio finish path. |
+
+## Team
+
+Vivijure is built by Conrad (`skyphusion`) and his named AI crew. The crew are treated as
+individuals, each working in their own lane with their own GitHub identity; this is the same
+transparent framing used across the project.
+
+| Member | Role | GitHub |
+|---|---|---|
+| Conrad | Creator / director | [@skyphusion](https://github.com/skyphusion) |
+| Mackaye | PM / tech lead | [@skyphusion-mackaye](https://github.com/skyphusion-mackaye) |
+| Strummer | Infrastructure | [@skyphusion-strummer](https://github.com/skyphusion-strummer) |
+| Rollins | Backend / modules | [@skyphusion-rollins](https://github.com/skyphusion-rollins) |
+| Joan | Frontend / extraction | [@skyphusion-joan](https://github.com/skyphusion-joan) |
+
+## Where Slate fits in the pipeline
+
+Slate is the front door to the studio: friends and Slate co-author a film in a Discord channel, then
+Slate submits it to vivijure entirely through the JSON API. Slate holds no render logic of its own;
+the studio is the single source of truth, and the render flows on from there.
+
+```mermaid
+flowchart TD
+    subgraph discord["Discord channel"]
+        friends["Friends + Slate<br/>co-author the brief"]
+    end
+
+    friends -->|"!render -> the huddle -> ship it"| slate["Slate<br/>(this repo)"]
+    slate -->|"JSON API<br/>(bundle + render/film)"| studio["vivijure<br/>studio control plane"]
+
+    subgraph studioside["vivijure studio"]
+        studio --> orch["render orchestration<br/>(typed hook contract)"]
+    end
+
+    orch -->|"keyframe + motion.backend"| backend["vivijure-backend<br/>(RunPod GPU)"]
+
+    subgraph render["GPU render"]
+        backend --> kf["SDXL keyframes"]
+        kf --> i2v{"motion backend"}
+        i2v -->|"own-gpu"| owngpu["self-hosted Wan i2v"]
+        i2v -->|"cloud"| cloud["cloud i2v"]
+        owngpu --> assemble["ffmpeg assemble"]
+        cloud --> assemble
+    end
+
+    assemble --> finish["film.finish chain"]
+
+    subgraph finishmods["finish modules"]
+        finish --> subs["subtitles<br/>(dialogue captions)"]
+        subs --> titles["title + credit cards"]
+        titles --> upscale["upscale / lip-sync /<br/>audio-enhance (opt-in)"]
+    end
+
+    upscale --> out["film.mp4<br/>+ Slate posts it back to the channel"]
+```
+
+What Slate controls through the API (all decided in conversation, carried at submit time):
+
+- **Render backend** -- own GPU (self-hosted i2v) vs cloud i2v (`!backend`).
+- **Quality tier** -- draft / standard / final, projected live from the studio registry (`!render`).
+- **Subtitles** -- captions the film's spoken dialogue, timed per shot (`!subtitles`).
+- **Title + credit cards** -- opening title, optional subtitle, end credits (`!titlecard`).
+- **Cast** -- character portraits generated and synced to the studio Cast, auto-filled for
+  multi-character films before submit.
 
 ---
 
