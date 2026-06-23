@@ -40,6 +40,7 @@
 //   !model [name|id]       show available image models / switch the active one
 //   !backend [name|auto]   choose the render backend (own GPU vs cloud); options come from the studio
 //   !titlecard <title> [| subtitle] [|| credit; credit]  set the opening title + end-credit cards
+//   !subtitles on|off      caption spoken dialogue in the rendered film
 //   !render [quality]      submit to Vivijure (quality: draft | standard | final; default: project tier)
 //   !undo                  roll back the last brief extraction
 //   !learn <text or URL>   index a film reference into the knowledge base
@@ -50,7 +51,7 @@
 // Slate runs no render logic itself. Backend names + quality tiers are projected live from the
 // studio registry (GET /api/modules), never hardcoded in a parallel list.
 //
-// Slash commands: /brief /portrait /thumbnail /model /backend /titlecard /render /undo /learn /reset
+// Slash commands: /brief /portrait /thumbnail /model /backend /titlecard /subtitles /render /undo /learn /reset
 // (registered globally on startup; guild propagation is instant, global takes ~1 hour)
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -333,7 +334,12 @@ The storyboard brief updates automatically in the background. Available commands
 - !thumbnail <scene-id> / /thumbnail -- generate a visual thumbnail for a scene
 - !backend [name|auto] / /backend -- choose the render backend (own GPU vs cloud), or auto
 - !titlecard <title> [| sub] [|| credits] / /titlecard -- set the opening title + end credits
+- !subtitles on|off / /subtitles -- caption spoken dialogue in the rendered film
 - !render [tier] / /render      -- submit to Vivijure for rendering (tier defaults to the project's)
+
+When the group wants subtitles, remember they caption spoken DIALOGUE: capture each shot's line as it
+is decided (in the brief's per-scene "dialogue"), and be honest that captions show once there are
+lines to show.
 - !undo / /undo                 -- roll back the last brief update
 - !learn <text or URL> / /learn -- add a film reference to the knowledge base
 - !reset / /reset               -- clear the project and start fresh`;
@@ -514,8 +520,12 @@ Schema to return:
   "duration_seconds": number | null,
   "clip_seconds": number | null,
   "cast": [{ "slot": "A"|"B"|"C"|"D", "name": string, "prompt": string, "portraitUrl": string | null }],
-  "scenes": [{ "id": string, "prompt": string, "act": string | null, "character_slots": string[], "target_seconds": number | null }]
-}`;
+  "scenes": [{ "id": string, "prompt": string, "act": string | null, "character_slots": string[], "target_seconds": number | null, "dialogue": string | null }]
+}
+
+Notes:
+- "dialogue" is the single spoken line for that shot (one line per shot), or null for a silent shot.
+  Capture it only when a line is actually spoken/quoted in the conversation; do not invent dialogue.`;
 
   // Flatten the recent conversation into a single user message. Passing the raw
   // history as alternating turns can end on an assistant message, which Claude
@@ -547,6 +557,15 @@ Schema to return:
       if (existing.portraitUrl  && !m2.portraitUrl)  m2.portraitUrl  = existing.portraitUrl;
       if (existing.castId      && !m2.castId)       m2.castId       = existing.castId;
       if (existing.portraitKey && !m2.portraitKey)  m2.portraitKey  = existing.portraitKey;
+    }
+
+    // Preserve any dialogue already set on a shot if the re-extraction dropped it (the extractor
+    // sees recent turns only and may not re-mention an earlier line). Same intent as the cast
+    // portrait/castId preservation above: never lose group-authored content on a partial re-extract.
+    for (const prev of project.brief.scenes) {
+      if (!prev.dialogue) continue;
+      const s2 = updated.scenes?.find(s => s.id === prev.id);
+      if (s2 && !s2.dialogue) s2.dialogue = prev.dialogue;
     }
 
     // Save previous brief for !undo
@@ -602,6 +621,19 @@ function parseCreditLines(raw) {
   return (raw ?? '').split(/[|;\n]/).map(s => s.trim()).filter(Boolean);
 }
 
+// Honest subtitles status: subtitles caption spoken dialogue, so the toggle is upfront about what it
+// needs (a subtitle module installed, and dialogue lines to caption). Built toward real captions,
+// never an empty switch. (Copy review: held for Mackaye + Conrad's voice pass.)
+async function subtitlesReply(on, brief) {
+  if (!on) return 'Subtitles are off.';
+  const hasDialogue = brief.scenes.some((s) => s.dialogue && String(s.dialogue).trim());
+  const subMod = await getSubtitleModule().catch(() => null);
+  const parts = ['Subtitles are on.'];
+  if (!subMod) parts.push('Heads up: the studio has no subtitle module installed right now, so nothing will be burned until one is.');
+  if (!hasDialogue) parts.push('They caption spoken dialogue -- once we have lines for the shots, they will show. Tell me who says what, scene by scene.');
+  return parts.join(' ');
+}
+
 // One-line summary of the render settings for /brief.
 function formatRenderSettings(rs) {
   if (!rs) return '';
@@ -640,6 +672,7 @@ function formatBrief(brief) {
       const dur  = s.target_seconds ? ` [${s.target_seconds}s]` : '';
       const chars = s.character_slots.length ? ` {${s.character_slots.join(',')}}` : '';
       lines.push(`  **${s.id}**${act}${dur}${chars}: ${s.prompt}`);
+      if (s.dialogue) lines.push(`      "${s.dialogue}"`);
     }
   }
 
@@ -751,6 +784,34 @@ async function getMotionBackends() {
   const data = await fetchRegistry();
   const names = data?.hooks?.['motion.backend'];
   return Array.isArray(names) ? names.filter(Boolean) : [];
+}
+
+// The subtitle film.finish module (name + config_schema), so the subtitles toggle writes the
+// module's REAL enable field rather than a guessed key -- the same projection principle as the
+// planner's render-config panel. null when no subtitle module is installed (the toggle then tells
+// the group subtitles are not available rather than silently no-op'ing).
+async function getSubtitleModule() {
+  const data = await fetchRegistry();
+  const mods = Array.isArray(data?.modules) ? data.modules : [];
+  const serving = data?.hooks?.['film.finish'] || [];
+  for (const name of serving) {
+    const mod = mods.find((m) => m.name === name);
+    if (!mod) continue;
+    const schema = mod.config_schema || {};
+    const isSubtitle = /subtitle|caption/i.test(mod.name)
+      || Object.keys(schema).some((k) => /subtitle|caption|burn/i.test(k));
+    if (isSubtitle) return mod;
+  }
+  return null;
+}
+
+// The boolean "enable" field key in a subtitle module's config_schema. Modules name it differently
+// (enabled / enable / burn / on); pick the first bool field whose key looks like an enable switch,
+// else the first bool field, else "enabled" as a last resort. Projection over assumption.
+function subtitleEnableField(mod) {
+  const schema = (mod && mod.config_schema) || {};
+  const bools = Object.keys(schema).filter((k) => schema[k] && schema[k].type === 'bool');
+  return bools.find((k) => /enabl|^on$|burn|subtitle|caption/i.test(k)) || bools[0] || 'enabled';
 }
 
 
@@ -956,6 +1017,26 @@ async function submitToVivijure(brief, opts = {}) {
   const filmTitles = buildFilmTitles(rs);
   if (filmTitles) filmBody.film_titles = filmTitles;
 
+  // Dialogue lines: one {shot_id, text} per speaking shot (the studio's caption model is one line
+  // per shot). Forwarded so the film.finish subtitle module can time captions to each shot's window.
+  // NOTE: the studio's /api/render/film does not forward dialogue_lines yet (filed as vivijure#296,
+  // backend lane); until that ships these ride along harmlessly and captions activate once it lands.
+  const dialogueLines = brief.scenes
+    .filter((s) => s.dialogue && String(s.dialogue).trim())
+    .map((s) => ({ shot_id: s.id, text: String(s.dialogue).trim() }));
+  if (dialogueLines.length) filmBody.dialogue_lines = dialogueLines;
+
+  // Subtitles: enable the subtitle film.finish module via its real config field. Only sent when the
+  // group turned subtitles on AND a subtitle module is installed AND there is dialogue to caption --
+  // an honest toggle, never an empty switch.
+  if (rs.subtitles && dialogueLines.length) {
+    const subMod = await getSubtitleModule();
+    if (subMod) {
+      const field = subtitleEnableField(subMod);
+      filmBody.film_finish_config = { ...(filmBody.film_finish_config || {}), [subMod.name]: { [field]: true } };
+    }
+  }
+
   const filmRes = await fetch(`${CFG.vivijureUrl}/api/render/film`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...accessHeaders },
     body: JSON.stringify(filmBody),
@@ -1138,6 +1219,11 @@ const SLASH_COMMANDS = [
     .addStringOption(o => o.setName('title').setDescription('Film title (empty clears the title card)').setRequired(false))
     .addStringOption(o => o.setName('subtitle').setDescription('Optional subtitle under the title').setRequired(false))
     .addStringOption(o => o.setName('credits').setDescription('Credit lines, separated by | or ;').setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('subtitles')
+    .setDescription('Turn dialogue subtitles on or off for the rendered film')
+    .addStringOption(o => o.setName('state').setDescription('on or off').setRequired(true)
+      .addChoices({ name: 'on', value: 'on' }, { name: 'off', value: 'off' })),
   new SlashCommandBuilder()
     .setName('model')
     .setDescription('Show or switch the active image generation model')
@@ -1336,6 +1422,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         await saveProject(channelId);
         await interaction.reply(`Cards updated -- ${formatRenderSettings(rs) || '(cleared)'}.`);
+        break;
+      }
+
+      case 'subtitles': {
+        const project = await getProject(channelId);
+        const rs = ensureRenderSettings(project.brief);
+        const on = interaction.options.getString('state') === 'on';
+        rs.subtitles = on;
+        await saveProject(channelId);
+        await interaction.reply(await subtitlesReply(on, project.brief));
         break;
       }
 
@@ -1569,6 +1665,17 @@ client.on(Events.MessageCreate, async (message) => {
     }
     await saveProject(channelId);
     await message.reply(`Cards updated -- ${formatRenderSettings(rs) || '(cleared)'}.`).catch(() => {});
+    return;
+  }
+
+  if (rawText.startsWith('!subtitles')) {
+    const arg     = rawText.slice('!subtitles'.length).trim().toLowerCase();
+    const project = await getProject(channelId);
+    const rs      = ensureRenderSettings(project.brief);
+    if (arg !== 'on' && arg !== 'off') { await message.reply('Usage: `!subtitles on` or `!subtitles off`').catch(() => {}); return; }
+    rs.subtitles = arg === 'on';
+    await saveProject(channelId);
+    await message.reply(await subtitlesReply(rs.subtitles, project.brief)).catch(() => {});
     return;
   }
 
