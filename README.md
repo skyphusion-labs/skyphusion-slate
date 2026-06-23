@@ -97,7 +97,8 @@ Three films, three genres, same flow: conversation in, finished film out.
 - **Render submission** -- `!render [draft|standard|final]` assembles the storyboard bundle and submits it to Vivijure; Slate notifies the channel automatically when the render completes
 - **D1 cloud session state** -- full storyboard brief, conversation history, brief undo history, and pending render jobs are stored in Cloudflare D1; nothing is lost on restart
 - **Brief undo** -- `!undo` rolls back the last automatic brief extraction if Claude misread something
-- **Slash commands** -- every command is available as a Discord slash command (`/brief`, `/portrait`, `/thumbnail`, `/render`, `/model`, `/undo`, `/learn`, `/reset`)
+- **Render settings, decided together** -- the group chooses the render backend (`!backend` own GPU vs cloud), the quality tier, and the opening title + end-credit cards (`!titlecard`). Slate holds these on the brief and carries them to the studio API at submit time; it runs no render logic of its own. Backend names and quality tiers are projected live from the studio registry (`GET /api/modules`), never hardcoded.
+- **Slash commands** -- every command is available as a Discord slash command (`/brief`, `/portrait`, `/thumbnail`, `/backend`, `/titlecard`, `/render`, `/model`, `/undo`, `/learn`, `/reset`)
 
 ---
 
@@ -216,7 +217,9 @@ docker compose -p slate -f stacks/dischord.yml up -d
 | `!portrait <A\|B\|C\|D> [desc]` | `/portrait` | Generate a character portrait and sync to Vivijure Cast |
 | `!thumbnail <scene-id>` | `/thumbnail` | Generate a visual thumbnail for a scene |
 | `!model [name]` | `/model` | List available image models or switch the active one |
-| `!render [quality]` | `/render` | Submit storyboard to Vivijure (draft / standard / final) |
+| `!backend [name\|auto]` | `/backend` | Choose the render backend (own GPU vs cloud), or `auto` to let the studio decide. Options are projected live from the studio registry. |
+| `!titlecard <title> [\| sub] [\|\| credits]` | `/titlecard` | Set the opening title card + end credits (credits separated by `;` or `\|`), or clear them |
+| `!render [quality]` | `/render` | Submit storyboard to Vivijure. Tier defaults to the project's setting (draft / standard / final); a multi-character film auto-fills missing character refs, and over-long scene prompts are smart-trimmed to the 50-word renderer cap |
 | `!undo` | `/undo` | Roll back the last automatic brief extraction |
 | `!learn <text or URL>` | `/learn` | Index a film reference into the knowledge base |
 | `!reset` | `/reset` | Clear the project and start fresh |
