@@ -22,6 +22,12 @@ studio API, so the web control panel is not needed to render a film:
 - **Smart prompt trim** (issue #16) -- over-long scene prompts are trimmed to the 50-word renderer
   cap keeping the opening (motion-critical) clause, with a heads-up to the group instead of a silent
   truncate.
+- **Subtitles + dialogue tracking** (`!subtitles` / `/subtitles`) -- the brief now tracks each shot's
+  spoken dialogue line, sent on submit as the studio's per-shot `dialogue_lines`; the `film.finish`
+  subtitle module times each caption to its shot. The toggle writes the subtitle module's real enable
+  field (projected from `GET /api/modules`) and is honest about needing a module installed and
+  dialogue to caption. (The studio's `/api/render/film` `dialogue_lines` forward is filed as
+  vivijure#296; until it ships the lines ride along and captions activate once it lands.)
 
 Render settings (backend, tier, title/credit cards) live on the storyboard brief and round-trip
 through D1. Slate runs no render logic of its own; it is a thin, registry-projecting client of the
