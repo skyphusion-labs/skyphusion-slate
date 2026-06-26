@@ -74,3 +74,12 @@ Less likely to merge:
 ## Licensing
 
 By contributing, you agree that your contributions are licensed under AGPL-3.0, the same license as this project. See [LICENSE](LICENSE).
+
+## Sign your work (Developer Certificate of Origin)
+
+Sign off every commit with `git commit -s`. That appends a `Signed-off-by:` line certifying the
+[Developer Certificate of Origin](https://developercertificate.org/) (DCO): a lightweight,
+per-commit affirmation that you wrote the patch or otherwise have the right to submit it under the
+project's license. We use the DCO instead of a CLA. The name and email must be real and match the
+commit author; unsigned commits may be asked to amend with `git commit --amend -s` (or
+`git rebase --signoff` for a series) before merge.
