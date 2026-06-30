@@ -8,7 +8,7 @@ Guidance for Claude Code (and the crew) working in this repo.
 maintains a storyboard brief, generates character portraits and scene thumbnails, searches the web,
 and submits projects to the Vivijure render pipeline. Currently **v0.2.0**. The GitHub repo is now
 named `slate` (it was `skyphusion-slate`; redirects still work, but use `slate`). Production runs as a
-Docker stack on the dischord host.
+Docker stack on `<deploy-host>`.
 
 ## Where it sits (the Vivijure constellation)
 
@@ -38,7 +38,7 @@ search-worker/           Cloudflare Worker `vivijure-search`: web search + knowl
 log-worker/              Cloudflare Worker `slate-logs`: log sink
   wrangler.toml          Binding: LOGS (R2 bucket: slate-logs)
 stacks/
-  dischord.yml           Docker Compose stack for the dischord host (production)
+  dischord.yml           Docker Compose stack for `<deploy-host>` (production)
   .env                   Secrets (never committed; see the dischord.yml header for the keys)
 ```
 
@@ -61,21 +61,21 @@ and `search-worker` (:8788) via `wrangler dev` so the import path that talks to 
 GitHub Actions on GitHub-hosted `ubuntu-latest` (public repo, fork-safe): `ci.yml` lints the bot +
 typechecks `search-worker`; `code-coverage.yml` runs the Vitest smoke against the two local workers;
 `deploy.yml` deploys `vivijure-search` and `slate-logs` on a green push to `main`. The bot itself is
-NOT deployed by CI: it is a deliberate host-side Docker step on dischord.
+NOT deployed by CI: it is a deliberate host-side Docker step on `<deploy-host>`.
 
-## Running (production: the dischord stack)
+## Running (production: the `<deploy-host>` stack)
 
 ```bash
-# Initial setup on the dischord host
-ssh root@dischord.internal "
+# Initial setup on `<deploy-host>`
+ssh <deploy-user>@<deploy-host> "
   cd ~/dev && git clone git@github.com:skyphusion-labs/slate.git
   cp ~/dev/slate/stacks/.env.example ~/dev/slate/stacks/.env   # then fill in secrets
   cd slate/stacks && docker compose -p slate -f dischord.yml up -d
 "
 
 # Redeploy after code changes
-rsync -az ~/dev/slate/ root@dischord.internal:/root/dev/slate/ --exclude node_modules --exclude .git --exclude stacks/.env
-ssh root@dischord.internal "docker compose -p slate -f ~/dev/slate/stacks/dischord.yml up -d --force-recreate slate"
+rsync -az ~/dev/slate/ <deploy-user>@<deploy-host>:/root/dev/slate/ --exclude node_modules --exclude .git --exclude stacks/.env
+ssh <deploy-user>@<deploy-host> "docker compose -p slate -f ~/dev/slate/stacks/dischord.yml up -d --force-recreate slate"
 ```
 
 `search-worker` (Vectorize, one-time) and the worker secrets are set via wrangler:
