@@ -284,12 +284,12 @@ SEARCH_SECRET=                # must match the Worker secret
 node bot.mjs
 ```
 
-### Docker (production -- dischord)
+### Docker (production -- your Docker host)
 
-See `stacks/dischord.yml`. Create `stacks/.env` with the variables above, then:
+See `stacks/compose.prod.yml`. Create `stacks/.env` with the variables above, then:
 
 ```bash
-docker compose -p slate -f stacks/dischord.yml up -d
+docker compose -p slate -f stacks/compose.prod.yml up -d
 ```
 
 ---
