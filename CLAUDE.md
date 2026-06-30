@@ -38,8 +38,8 @@ search-worker/           Cloudflare Worker `vivijure-search`: web search + knowl
 log-worker/              Cloudflare Worker `slate-logs`: log sink
   wrangler.toml          Binding: LOGS (R2 bucket: slate-logs)
 stacks/
-  dischord.yml           Docker Compose stack for `<deploy-host>` (production)
-  .env                   Secrets (never committed; see the dischord.yml header for the keys)
+  compose.prod.yml       Docker Compose stack for `<deploy-host>` (production)
+  .env                   Secrets (never committed; see the compose.prod.yml header for the keys)
 ```
 
 ## Commands
@@ -70,12 +70,12 @@ NOT deployed by CI: it is a deliberate host-side Docker step on `<deploy-host>`.
 ssh <deploy-user>@<deploy-host> "
   cd ~/dev && git clone git@github.com:skyphusion-labs/slate.git
   cp ~/dev/slate/stacks/.env.example ~/dev/slate/stacks/.env   # then fill in secrets
-  cd slate/stacks && docker compose -p slate -f dischord.yml up -d
+  cd slate/stacks && docker compose -p slate -f compose.prod.yml up -d
 "
 
 # Redeploy after code changes
 rsync -az ~/dev/slate/ <deploy-user>@<deploy-host>:~/dev/slate/ --exclude node_modules --exclude .git --exclude stacks/.env
-ssh <deploy-user>@<deploy-host> "docker compose -p slate -f ~/dev/slate/stacks/dischord.yml up -d --force-recreate slate"
+ssh <deploy-user>@<deploy-host> "docker compose -p slate -f ~/dev/slate/stacks/compose.prod.yml up -d --force-recreate slate"
 ```
 
 `search-worker` (Vectorize, one-time) and the worker secrets are set via wrangler:
@@ -142,7 +142,7 @@ Slash commands register globally on startup via `Routes.applicationCommands`.
 - Crew commits land under the member's own `skyphusion-<member>` identity, never Conrad's. (Conrad
   devs ONLY on his laptop, where his commits author as `Conrad Rockenhaus <conrad@skyphusion.org>`
   -- his real name kept, the in-house `@skyphusion.org` email; his name is never scrubbed and his
-  history never rewritten. On jello the `conrad` user is the god process and commits as
+  history never rewritten. On the crew host the `conrad` user is the god process and commits as
   `Mackaye <mackaye@skyphusion.org>`.)
 - Cross-project operating context lives in the main auto-memory
   (`~/.claude/projects/-home-conrad/memory/`); load it before acting.
