@@ -1,6 +1,10 @@
 node_modules/
+slate.env
 stacks/.env
 *.log
 search-worker/node_modules/
 search-worker/.wrangler/
 search-worker/dist/
+log-worker/node_modules/
+log-worker/.wrangler/
+log-worker/dist/
