@@ -1,46 +1,112 @@
 # Slate
 
-**Slate** is the collaborative screenwriter's assistant for the [Vivijure](https://vivijure.skyphusion.org) AI film platform. It lives in a Discord channel and helps filmmakers plan, develop, and submit films through natural conversation -- maintaining a structured storyboard brief in the background, generating character portraits, searching the web, and submitting projects to the Vivijure render pipeline when the team is ready.
+**Slate is a Discord bot that lets you and your friends write a film together in
+chat, then sends it to the studio to be made into video.** You talk about an
+idea in a Discord channel; Slate joins in as a co-writer, quietly keeps a
+storyboard in the background, draws your characters, and when you are ready ships
+the whole thing to a Vivijure Studio to render.
 
-> Slate started as a simple Discord-to-ollama relay and was redesigned and substantially extended by [Claude Sonnet 4.6](https://anthropic.com) (operating as Strummer, SkyPhusion's AI crew member) into the full platform assistant it is today. The architecture, feature set, knowledge base, search integration, vision support, slash commands, render pipeline, and D1 session persistence were all designed and implemented by Claude as part of the SkyPhusion AI-collaborative development workflow.
+> Slate started as a simple Discord-to-Ollama relay and was redesigned and
+> substantially extended by [Claude Sonnet 4.6](https://anthropic.com) (operating
+> as Strummer, SkyPhusion's AI crew member) into the full assistant it is today,
+> as part of the SkyPhusion AI-collaborative development workflow.
 
-## The Vivijure ecosystem
+## Where Slate fits: the Vivijure map
 
-Vivijure is an AI film studio built as a thin control plane plus opt-in GPU modules. These repos
-form the constellation; this block is identical in each so the whole map is visible from any one of
-them.
+Vivijure is not one program. It is a small group of programs that work together;
+we call the whole group the **constellation**. Slate is the box at the **top** of
+the map: the Discord front door. You chat with Slate; Slate talks to the Studio;
+the Studio does everything else. The full page is in
+[docs/constellation.md](docs/constellation.md), and the same map appears in every
+repo so you always know where you are.
 
+```mermaid
+flowchart TD
+    subgraph front[You and your friends]
+        discord[Discord chat]
+        ui[Studio web page]
+    end
+
+    slate[slate<br/>Discord screenwriter bot]
+
+    subgraph core[The control plane]
+        studio[vivijure Studio<br/>projects, storyboard, cast,<br/>render orchestration + module registry]
+    end
+
+    subgraph modules[Modules: one job each, opt-in]
+        cloudmods[Cloud video modules<br/>Seedance, Kling, Veo, Wan, ...]
+        finishmods[Finish modules<br/>upscale, smooth, lip-sync, titles]
+        audiomods[Audio modules<br/>music, narration]
+    end
+
+    subgraph gpu[The GPU render engines]
+        backend[vivijure-backend<br/>RunPod cloud GPU:<br/>keyframes, image-to-video, LoRA training]
+        local12[vivijure-local-12gb<br/>your own 12GB card LTX]
+        local16[vivijure-local-16gb<br/>your own 16GB card CogVideoX]
+    end
+
+    subgraph finish[Finish helper engines]
+        musetalk[vivijure-musetalk<br/>lip-sync]
+        upscale[vivijure-upscale<br/>video upscale]
+        audioup[vivijure-audio-upscale<br/>audio cleanup]
+    end
+
+    discord --> slate
+    slate --> studio
+    ui --> studio
+    studio --> cloudmods
+    studio --> finishmods
+    studio --> audiomods
+    cloudmods --> backend
+    finishmods --> musetalk
+    finishmods --> upscale
+    audiomods --> audioup
+    studio --> backend
+    studio --> local12
+    studio --> local16
 ```
-   friends + Slate (Discord)
-            |
-            v
-        slate  -->  vivijure (studio control plane / JSON API)
-                        |
-                        v
-                  vivijure-backend (GPU render: keyframes -> i2v -> assemble)
-                        |
-            +-----------+-----------------------------+
-            |           |               |             |
-            v           v               v             v
-     vivijure-     vivijure-       vivijure-      (more finish
-     musetalk      upscale         audio-upscale   modules over time)
-   (lip-sync)    (video upscale)  (speech enhance)
+
+Slate holds no render logic of its own. It writes and plans; the Studio is the
+single source of truth and runs the render from there. What Slate decides in
+conversation and carries to the Studio at submit time:
+
+- **Render backend** -- your own GPU vs cloud (`!backend`).
+- **Quality tier** -- draft / standard / final, projected live from the studio
+  registry (`!render`).
+- **Subtitles** -- captions the film's spoken dialogue (`!subtitles`).
+- **Title + credit cards** -- opening title and end credits (`!titlecard`).
+- **Cast** -- character portraits generated and synced to the studio Cast.
+
+Backend names and quality tiers are projected live from the studio registry
+(`GET /api/modules`), never hardcoded in a parallel list.
+
+## Run your own Slate
+
+Full walk-through: [docs/quickstart.md](docs/quickstart.md). Every setting, in
+plain words: [docs/configuration.md](docs/configuration.md). The short version:
+
+```bash
+# 1. Make a Discord bot and copy its token (see the quickstart).
+# 2. Make your key file, then edit it and paste your keys in.
+cp slate.env.example slate.env
+# 3. Run Slate. Safe to re-run.
+./run.sh
 ```
 
-| Repo | Role |
-|---|---|
-| [slate](https://github.com/skyphusion-labs/slate) | Collaborative AI screenwriter assistant for Discord. Friends and Slate co-author a film in-channel; Slate then submits it to the studio entirely through the vivijure JSON API. |
-| [vivijure](https://github.com/skyphusion-labs/vivijure) | The studio control plane (a Cloudflare Worker): planner, cast, and render UI plus the JSON API. A thin module host that orchestrates render jobs behind a typed hook contract. |
-| [vivijure-backend](https://github.com/skyphusion-labs/vivijure-backend) | The GPU render backend (RunPod serverless): SDXL keyframes, Wan image-to-video, and ffmpeg assembly. The half that turns a storyboard bundle into a film. |
-| [vivijure-musetalk](https://github.com/skyphusion-labs/vivijure-musetalk) | MuseTalk audio-driven lip-sync GPU module (finish-class). Syncs a character's mouth to dialogue audio. |
-| [vivijure-upscale](https://github.com/skyphusion-labs/vivijure-upscale) | Real-ESRGAN CUDA video-upscale GPU module (finish-class). Raises the assembled film's resolution. |
-| [vivijure-audio-upscale](https://github.com/skyphusion-labs/vivijure-audio-upscale) | CUDA speech-audio enhancement (resemble-enhance) GPU module. The GPU half of the cost-aware audio finish path. |
+`run.sh` checks your keys, installs what it needs, and starts Slate. The only
+required key is `DISCORD_TOKEN`; everything else adds a feature, and Slate tells
+you at startup what is on and what is off. `slate.env` holds your secrets and is
+ignored by git, so it is never committed.
+
+Prefer Docker? A production Compose stack is in
+[stacks/compose.prod.yml](stacks/compose.prod.yml); copy `slate.env.example` to
+`stacks/.env` and run `docker compose -p slate -f stacks/compose.prod.yml up -d`.
 
 ## Team
 
-Vivijure is built by Conrad (`skyphusion`) and his named AI crew. The crew are treated as
-individuals, each working in their own lane with their own GitHub identity; this is the same
-transparent framing used across the project.
+Vivijure is built by Conrad (`skyphusion`) and his named AI crew. The crew are
+treated as individuals, each working in their own lane with their own GitHub
+identity; this is the same transparent framing used across the project.
 
 | Member | Role | GitHub |
 |---|---|---|
@@ -49,56 +115,6 @@ transparent framing used across the project.
 | Strummer | Infrastructure | [@skyphusion-strummer](https://github.com/skyphusion-strummer) |
 | Rollins | Backend / modules | [@skyphusion-rollins](https://github.com/skyphusion-rollins) |
 | Joan | Frontend / extraction | [@skyphusion-joan](https://github.com/skyphusion-joan) |
-
-## Where Slate fits in the pipeline
-
-Slate is the front door to the studio: friends and Slate co-author a film in a Discord channel, then
-Slate submits it to vivijure entirely through the JSON API. Slate holds no render logic of its own;
-the studio is the single source of truth, and the render flows on from there.
-
-```mermaid
-flowchart TD
-    subgraph discord["Discord channel"]
-        friends["Friends + Slate<br/>co-author the brief"]
-    end
-
-    friends -->|"!render -> the huddle -> ship it"| slate["Slate<br/>(this repo)"]
-    slate -->|"JSON API<br/>(bundle + render/film)"| studio["vivijure<br/>studio control plane"]
-
-    subgraph studioside["vivijure studio"]
-        studio --> orch["render orchestration<br/>(typed hook contract)"]
-    end
-
-    orch -->|"keyframe + motion.backend"| backend["vivijure-backend<br/>(RunPod GPU)"]
-
-    subgraph render["GPU render"]
-        backend --> kf["SDXL keyframes"]
-        kf --> i2v{"motion backend"}
-        i2v -->|"own-gpu"| owngpu["self-hosted Wan i2v"]
-        i2v -->|"cloud"| cloud["cloud i2v"]
-        owngpu --> assemble["ffmpeg assemble"]
-        cloud --> assemble
-    end
-
-    assemble --> finish["film.finish chain"]
-
-    subgraph finishmods["finish modules"]
-        finish --> subs["subtitles<br/>(dialogue captions)"]
-        subs --> titles["title + credit cards"]
-        titles --> upscale["upscale / lip-sync /<br/>audio-enhance (opt-in)"]
-    end
-
-    upscale --> out["film.mp4<br/>+ Slate posts it back to the channel"]
-```
-
-What Slate controls through the API (all decided in conversation, carried at submit time):
-
-- **Render backend** -- own GPU (self-hosted i2v) vs cloud i2v (`!backend`).
-- **Quality tier** -- draft / standard / final, projected live from the studio registry (`!render`).
-- **Subtitles** -- captions the film's spoken dialogue, timed per shot (`!subtitles`).
-- **Title + credit cards** -- opening title, optional subtitle, end credits (`!titlecard`).
-- **Cast** -- character portraits generated and synced to the studio Cast, auto-filled for
-  multi-character films before submit.
 
 ---
 
@@ -175,9 +191,9 @@ Three films, three genres, same flow: conversation in, finished film out.
 - **Vision input** -- paste mood boards, reference stills, or concept art directly into the channel; Claude reads the images and incorporates them into the creative discussion
 - **Web search + deep research** -- Claude autonomously calls Brave Search, Tavily (AI-curated research), and Cloudflare Browser Rendering (headless Chrome) when it needs to look something up
 - **Knowledge base** -- `!learn <text or URL>` indexes film references, director styles, cinematography notes, and genre conventions into a Cloudflare Vectorize store; Claude searches it automatically when relevant
-- **Character portraits** -- `!portrait A [description]` generates a character image via skyphusion-llm-public and syncs it to the Vivijure Cast (name, visual bible, and portrait registered in one step)
+- **Character portraits** -- `!portrait A [description]` generates a character image via the image service and syncs it to the Vivijure Cast (name, visual bible, and portrait registered in one step)
 - **Scene thumbnails** -- `!thumbnail <scene-id>` generates a quick visual for any scene using its prompt and the project's style prefix
-- **11 image models** -- FLUX Schnell, FLUX 2 Klein, FLUX 2 Dev, Phoenix, Lucid Origin, Dreamshaper, SDXL, GPT Image 1.5, Recraft V4, Nano Banana Pro; switch with `!model <alias>`
+- **Image models** -- FLUX Schnell, FLUX 2 Klein, FLUX 2 Dev, Phoenix, Lucid Origin, Dreamshaper, SDXL, GPT Image 1.5, and more; switch with `!model <alias>`
 - **Render submission** -- `!render [draft|standard|final]` assembles the storyboard bundle and submits it to Vivijure; Slate notifies the channel automatically when the render completes
 - **D1 cloud session state** -- full storyboard brief, conversation history, brief undo history, and pending render jobs are stored in Cloudflare D1; nothing is lost on restart
 - **Brief undo** -- `!undo` rolls back the last automatic brief extraction if Claude misread something
@@ -202,7 +218,7 @@ Discord channel
       |       +-- search_knowledge --> vivijure-search Worker (Vectorize)
       |
       +-- Cloudflare D1          (session state: brief, history, render jobs)
-      +-- skyphusion-llm-public  (image generation: 11 models)
+      +-- image service          (image generation)
       +-- Vivijure API           (Cast sync, portrait upload, storyboard render)
 
 vivijure-search  (Cloudflare Worker)
@@ -224,73 +240,22 @@ vivijure-search  (Cloudflare Worker)
 
 ## Setup
 
-### Prerequisites
-
-- Node 24+
-- A Discord application with a bot token ([Discord Developer Portal](https://discord.com/developers/applications))
-  - Bot intents: **MESSAGE CONTENT** on (Privileged Gateway Intents)
-  - OAuth2 scopes: `bot`, `applications.commands`
-  - Bot permissions: Send Messages, Read Message History, Attach Files
-- Cloudflare account with Workers Paid plan (for Vectorize and Browser Rendering)
-- Cloudflare AI Gateway set up with the `skyphusion-llm` gateway name (or your own)
-- D1 database (create one: `wrangler d1 create vivijure-bot-sessions`)
-
-### vivijure-search Worker
+The plain-language walk-through is in **[docs/quickstart.md](docs/quickstart.md)**,
+and **every** setting is documented in **[docs/configuration.md](docs/configuration.md)**.
+In short: make a Discord bot (MESSAGE CONTENT intent on; scopes `bot` +
+`applications.commands`; permissions Send Messages, Read Message History, Attach
+Files), then:
 
 ```bash
-cd search-worker
-npm install
-
-# Create the Vectorize index (one-time)
-npx wrangler vectorize create slate-knowledge --dimensions=1024 --metric=cosine
-
-# Set secrets
-npx wrangler secret put BRAVE_API_KEY      # https://brave.com/search/api/
-npx wrangler secret put TAVILY_API_KEY     # https://tavily.com/
-npx wrangler secret put SEARCH_SECRET      # any random shared secret
-
-# Deploy
-npm run deploy
+cp slate.env.example slate.env   # then edit it; at minimum set DISCORD_TOKEN
+./run.sh
 ```
 
-Update `search-worker/wrangler.toml` if you use a different Vectorize index name or CF account.
-
-### Discord bot (local / direct)
-
-```bash
-npm install
-```
-
-Create a `.env` file (or export these variables):
-
-```env
-DISCORD_TOKEN=
-DISCORD_CHANNEL_IDS=          # comma-separated channel IDs to listen in
-DISCORD_MODEL=claude-sonnet-4-6
-VIVIJURE_API_URL=https://vivijure.skyphusion.org
-LLM_API_URL=https://play.skyphusion.org
-CF_ACCESS_CLIENT_ID=          # Cloudflare Access service token
-CF_ACCESS_CLIENT_SECRET=
-CF_D1_TOKEN=                  # CF API token with D1:Write scope
-CF_D1_ACCOUNT_ID=
-CF_D1_DATABASE_ID=
-CF_AIG_TOKEN=                 # CF API token for AI Gateway (omit to use ollama)
-CF_GATEWAY_ENDPOINT=          # e.g. https://gateway.ai.cloudflare.com/v1/<acct>/<name>/compat/chat/completions
-SEARCH_WORKER_URL=https://vivijure-search.skyphusion.workers.dev
-SEARCH_SECRET=                # must match the Worker secret
-```
-
-```bash
-node bot.mjs
-```
-
-### Docker (production -- your Docker host)
-
-See `stacks/compose.prod.yml`. Create `stacks/.env` with the variables above, then:
-
-```bash
-docker compose -p slate -f stacks/compose.prod.yml up -d
-```
+The two optional Cloudflare Workers are set up from their own folders when you
+want them: **vivijure-search** ([search-worker/](search-worker)) for web search
+and the knowledge base, and **slate-logs** ([log-worker/](log-worker)) for log
+shipping. Their keys are documented in
+[docs/configuration.md](docs/configuration.md).
 
 ---
 
@@ -311,15 +276,11 @@ docker compose -p slate -f stacks/compose.prod.yml up -d
 | `!learn <text or URL>` | `/learn` | Index a film reference into the knowledge base |
 | `!reset` | `/reset` | Clear the project and start fresh |
 
-**Image model aliases:** `flux-schnell`, `flux2-fast`, `flux2`, `flux2-dev`, `phoenix`, `lucid`, `dreamshaper`, `sdxl`, `gpt-image`, `recraft`, `nano-banana`
-
 ---
 
 ## Image attachment (vision)
 
 When the Claude backend is active, you can attach images directly to any message -- mood boards, reference stills, concept art, frame grabs. Slate reads them and incorporates them into the creative discussion. Up to 3 images per message, 4 MB each.
-
----
 
 ## Ollama fallback
 
