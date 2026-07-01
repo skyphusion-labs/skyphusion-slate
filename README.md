@@ -310,11 +310,13 @@ through [SECURITY.md](SECURITY.md), not public issues. Release notes live in
 
 ---
 
-## Using Slate (Terms & Privacy)
+## Using Slate (Terms, Privacy & Acceptable Use)
 
 Slate is a Discord application that reads message content in the channels it joins. By using it you
 agree to the [Terms of Service](TERMS.md); how it handles your data (and the third-party services
 involved) is described in the [Privacy Policy](PRIVACY.md).
+
+Slate is the Discord front door to Vivijure, so the studio content rules apply here too. The absolute ban on CSAM, real or synthetic (18 U.S.C. 1466A / 2252A), and the rest of the limits are set by the canonical Vivijure Studio [Acceptable Use Policy](https://github.com/skyphusion-labs/vivijure/blob/main/docs/legal/ACCEPTABLE-USE.md).
 
 ---
 
@@ -322,4 +324,4 @@ involved) is described in the [Privacy Policy](PRIVACY.md).
 
 **AGPL-3.0-only.** A labor of love, given freely: use it, learn from it, self-host it, build your own creative visions on it. Run it as a network service and the AGPL has you share your changes back, so it stays a commons. It is not for sale, and not to be resold as a SaaS.
 
-See [LICENSE](LICENSE).
+Licensed under AGPL-3.0-only. See [LICENSE](LICENSE).
