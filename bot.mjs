@@ -725,7 +725,7 @@ async function generateImage(prompt, imageModel, label = 'image') {
 
   if (!genRes.ok) {
     const body = await genRes.text().catch(() => '');
-    return { ok: false, error: `image gen failed ${genRes.status}: ${body.slice(0, 200)}` };
+    return { ok: false, error: friendlyHttpError(genRes.status, body, 'the image service', 'make that image') };
   }
 
   const genData = await genRes.json();
@@ -972,6 +972,35 @@ function buildFilmTitles(rs) {
 // the storyboard, then POSTs /api/render/film with the choices mapped to the studio contract.
 // Returns { ok, jobId, status, trims } -- trims lists scenes whose prompt was smart-trimmed so the
 // caller can tell the group what changed (issue #16).
+// Human-readable error for a failed studio / image-service call. Auth failures never echo the raw
+// body (it can carry an Access page or a token hint); other 4xx keep a short bounded detail so a real
+// validation message still reaches the group. Single source for both services.
+function friendlyHttpError(status, rawBody, service, action) {
+  if (status === 401 || status === 403) return `I could not get into ${service} -- my access was rejected. Check my token/credentials.`;
+  if (status === 429) return `${service} is rate-limiting me right now. Give it a minute, then try again.`;
+  if (status >= 500) return `${service} hit a server error trying to ${action} (${status}). Try again shortly.`;
+  const detail = (rawBody || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+  return `${service} could not ${action} (${status})${detail ? `: ${detail}` : ''}.`;
+}
+
+// POST to a studio spend route with bounded backoff on 429/503 (honoring Retry-After when sane), so
+// a transient rate-limit does not fail a render the group already confirmed. Returns the final
+// Response for the caller to interpret.
+async function postStudioJson(url, headers, body) {
+  const MAX = 3;
+  let res;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    res = await fetch(url, { method: 'POST', headers, body });
+    if (res.status !== 429 && res.status !== 503) return res;
+    if (attempt === MAX) return res;
+    const ra = parseInt(res.headers.get('retry-after') ?? '', 10);
+    const waitMs = Math.min(Number.isFinite(ra) ? ra * 1000 : attempt * 1000, 5000);
+    log(`[render] studio ${res.status}; backoff ${waitMs}ms (attempt ${attempt}/${MAX})`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+  return res;
+}
+
 async function submitToVivijure(brief, opts = {}) {
   if (!CFG.vivijureUrl || !CFG.studioApiToken) {
     return { ok: false, error: 'VIVIJURE_API_URL or STUDIO_API_TOKEN not configured' };
@@ -1020,7 +1049,7 @@ async function submitToVivijure(brief, opts = {}) {
   });
   if (!bundleRes.ok) {
     const body = await bundleRes.text().catch(() => '');
-    return { ok: false, error: `bundle failed ${bundleRes.status}: ${body}` };
+    return { ok: false, error: friendlyHttpError(bundleRes.status, body, 'the studio', 'prepare the storyboard') };
   }
   const { bundleKey } = await bundleRes.json();
 
@@ -1065,13 +1094,11 @@ async function submitToVivijure(brief, opts = {}) {
     }
   }
 
-  const filmRes = await fetch(`${CFG.vivijureUrl}/api/render/film`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
-    body: JSON.stringify(filmBody),
-  });
+  const filmRes = await postStudioJson(`${CFG.vivijureUrl}/api/render/film`,
+    { 'Content-Type': 'application/json', ...authHeaders }, JSON.stringify(filmBody));
   if (!filmRes.ok) {
     const body = await filmRes.text().catch(() => '');
-    return { ok: false, error: `film submit failed ${filmRes.status}: ${body}` };
+    return { ok: false, error: friendlyHttpError(filmRes.status, body, 'the studio', 'start the render') };
   }
   const film = await filmRes.json();
   return { ok: true, jobId: film.film_id, status: film.phase, quality, trims };
@@ -1232,19 +1259,19 @@ const CONFIRM_TTL_MS = 10 * 60 * 1000;
 function armConfirm(channelId, quality) {
   pendingConfirms.set(channelId, { quality, at: Date.now() });
 }
-function takeConfirm(channelId) {
-  const c = pendingConfirms.get(channelId);
-  if (!c) return null;
-  pendingConfirms.delete(channelId);
-  if (Date.now() - c.at > CONFIRM_TTL_MS) return null;
-  return c;
-}
 // Natural affirmatives that mean "send it" when a huddle is armed. Kept tight so ordinary
 // conversation ("yes, that scene works") does not accidentally launch a render -- the phrase must be
 // short and shipping-flavored.
 const SHIP_RE = /^(ship it|ship|send it|send|go for it|go|do it|launch it|launch|yes ship|yep ship|render it now)[.!]?$/i;
 function looksLikeShip(text) {
   return SHIP_RE.test((text ?? '').trim());
+}
+// Looser "did they mean to send it?" detector, used ONLY while a huddle is armed to tell a clean
+// confirm apart from a near-miss ("let's ship it", "yeah, send it", "lgtm", "yes"). A near-miss gets
+// a one-line nudge toward the exact word instead of silently becoming ordinary chat.
+const SHIP_INTENT_RE = /\b(ship|send)\s+(it|this)\b|^\s*(y(es|ep|eah|up)|sure|ok(ay)?|lgtm|looks good|sounds good|good to go|let'?s go|go ahead|do it|send it|ready)\b[.! ]*$/i;
+function looksLikeShipIntent(text) {
+  return SHIP_INTENT_RE.test((text ?? '').trim());
 }
 
 // The shared submit runner: auto-fill refs (#17), submit, persist the pending job, and report the
@@ -1269,7 +1296,7 @@ async function runSubmit(brief, channelId, quality, imageModel, say) {
   }
   log(`[render] result: ${JSON.stringify(result).slice(0, 200)}`);
   if (!result.ok) {
-    await say(`The studio turned the submit down: ${result.error}`);
+    await say(result.error);
     return false;
   }
   pendingRenders.set(result.jobId, { channelId, quality });
@@ -1876,7 +1903,13 @@ client.on(Events.MessageCreate, async (message) => {
       await runSubmit(project.brief, channelId, quality, project.imageModel, say);
     } else {
       armConfirm(channelId, quality);
-      await say(buildSubmitHuddle(project.brief));
+      // In a channel Slate only hears via @mention, the confirmation must be a mention too, or the
+      // "ship it" goes unheard -- say so up front rather than leaving a dead huddle.
+      const mentionOnly = !isDM && !inListenChan;
+      const hint = mentionOnly
+        ? '\n(Heads up: in this channel I only hear you when you @mention me -- put an @ me on your `ship it`.)'
+        : '';
+      await say(buildSubmitHuddle(project.brief) + hint);
     }
     return;
   }
@@ -1895,17 +1928,35 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  // A "ship it" (or similar) while a huddle is armed fires the actual submit, so the group can
-  // confirm in plain language ("ship it") rather than a second command. Outside an armed window
-  // these words are just ordinary conversation and fall through to the LLM.
-  if (looksLikeShip(rawText)) {
-    const confirm = takeConfirm(channelId);
-    if (confirm) {
-      const project = await getProject(channelId);
-      const say = (t) => message.reply(t).catch(() => {});
-      await runSubmit(project.brief, channelId, confirm.quality, project.imageModel, say);
+  // A "ship it" while a huddle is armed fires the submit. Handle every armed case explicitly so a
+  // confirmation never silently vanishes: a fresh clean phrase ships; an expired one says so; a
+  // near-miss affirmation ("let's ship it", "yes") gets nudged toward the exact word while the
+  // huddle stays armed. Outside an armed window these words are just ordinary conversation.
+  const armed = pendingConfirms.get(channelId);
+  if (armed) {
+    const fresh = Date.now() - armed.at <= CONFIRM_TTL_MS;
+    if (looksLikeShip(rawText)) {
+      pendingConfirms.delete(channelId);
+      if (fresh) {
+        const project = await getProject(channelId);
+        const say = (t) => message.reply(t).catch(() => {});
+        await runSubmit(project.brief, channelId, armed.quality, project.imageModel, say);
+      } else {
+        await message.reply('That huddle timed out, so I held off. Run `!render` again when you are ready and I will line it back up.').catch(() => {});
+      }
       return;
     }
+    if (looksLikeShipIntent(rawText)) {
+      if (fresh) {
+        await message.reply('Want me to send it? Say `ship it` (or `!render now` / `!ship`) and it is off.').catch(() => {});
+      } else {
+        pendingConfirms.delete(channelId);
+        await message.reply('That huddle timed out before I caught a yes. Run `!render` again, then say `ship it`.').catch(() => {});
+      }
+      return;
+    }
+    // Anything else while armed is ordinary conversation (usually still tuning) -- fall through and
+    // leave the huddle armed until it is confirmed or expires.
   }
 
   // --- Conversation (with optional vision) ---
