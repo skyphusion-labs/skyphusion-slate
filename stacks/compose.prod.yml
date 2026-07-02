@@ -9,8 +9,9 @@
 #     CF_D1_DATABASE_ID        - D1 database ID
 #   Secrets:
 #     DISCORD_TOKEN            - Discord bot token
-#     CF_ACCESS_CLIENT_ID      - CF Access service token client ID
-#     CF_ACCESS_CLIENT_SECRET  - CF Access service token secret
+#     STUDIO_API_TOKEN         - Vivijure Studio API token (bearer; REQUIRED)
+#     CF_ACCESS_CLIENT_ID      - CF Access service token client ID (optional)
+#     CF_ACCESS_CLIENT_SECRET  - CF Access service token secret (optional)
 #     CF_D1_TOKEN              - CF API token with D1:Write permission
 #     CF_AIG_TOKEN             - CF API token for AI Gateway (Anthropic path)
 #     CF_GATEWAY_ENDPOINT      - CF AI Gateway compat URL
@@ -40,9 +41,10 @@ services:
       DISCORD_MODEL: ${DISCORD_MODEL:-claude-sonnet-4-6}
       DISCORD_LOG: /dev/stdout
       VIVIJURE_API_URL: https://vivijure.skyphusion.org
+      STUDIO_API_TOKEN: ${STUDIO_API_TOKEN}
       LLM_API_URL: https://play.skyphusion.org
-      CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID}
-      CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET}
+      CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
+      CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
       CF_D1_TOKEN: ${CF_D1_TOKEN}
       CF_D1_ACCOUNT_ID: ${CF_D1_ACCOUNT_ID}
       CF_D1_DATABASE_ID: ${CF_D1_DATABASE_ID}

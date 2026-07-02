@@ -122,11 +122,23 @@ to a Vivijure Studio.
   quickstart).
 - **Example:** `VIVIJURE_API_URL=https://vivijure.example.com`
 
-### `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`
+### `STUDIO_API_TOKEN`
+- **What:** the Studio's API token (a bearer token).
+- **Why:** the Studio checks this token on every request Slate makes (storyboard
+  bundle, cast sync, portrait upload, render submit, status). It is how Slate
+  proves it is allowed to drive your Studio. **Required whenever
+  `VIVIJURE_API_URL` is set** -- Slate refuses to start without it rather than
+  fire calls that would be turned away.
+- **Where:** your Studio prints (or lets you mint) this token when you deploy it;
+  see the Studio's own quickstart. Paste the same value here.
+- **Example:** `STUDIO_API_TOKEN=vjs_live_...`
+
+### `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (optional)
 - **What:** a Cloudflare Access **service token** (an id and a secret).
-- **Why:** a Studio should sit behind Cloudflare Access, which blocks anyone
-  without a login. A service token is how Slate, a program, proves it is allowed
-  in. Leave both empty only if your Studio has no Access in front of it.
+- **Why:** optional, additive hardening. If you *also* put your Studio behind
+  Cloudflare Access, these let Slate through that outer door; `STUDIO_API_TOKEN`
+  above is still what the Studio itself checks. Leave both empty if your Studio
+  has no Access in front of it (the common case).
 - **Where:** Cloudflare **Zero Trust** -> **Access** -> **Service Auth** ->
   **Service Tokens** -> create one. Then add that token as an allowed client on
   your Studio's Access application.

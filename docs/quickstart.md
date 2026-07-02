@@ -49,7 +49,7 @@ exactly what each one is, why it exists, and where to click to get it.
 - `DISCORD_TOKEN` (required) -- from step 1.
 - `CF_AIG_TOKEN` + `CF_GATEWAY_ENDPOINT` -- to use **Claude** as the writing
   brain (recommended). Skip these to use a local **Ollama** model instead.
-- `VIVIJURE_API_URL` (+ Access token) -- your **Studio**, so Slate can render.
+- `VIVIJURE_API_URL` + `STUDIO_API_TOKEN` -- your **Studio**, so Slate can render.
 - `CF_D1_*` -- a small cloud database so Slate remembers your projects.
 - `SEARCH_WORKER_URL` + `SEARCH_SECRET` -- optional web search + knowledge base.
 
