@@ -1,0 +1,67 @@
+name: image
+
+# Build the Slate bot image and push it to GHCR on a version tag.
+#
+# The Discord bot (bot.mjs) runs as a Docker stack on dischord, deployed from
+# fleet-chezmoi (system/stacks/dischord/slate/). This workflow produces the
+# immutable, versioned image that stack pins -- replacing the old anti-pattern
+# of bind-mounting /root/dev + running `npm ci` at container start
+# (fleet-chezmoi#170).
+#
+# Trigger: push a SemVer tag (e.g. v0.2.0). The image is tagged with the clean
+# version (0.2.0), the major.minor (0.2), and the commit sha. NO :latest -- the
+# fleet-chezmoi compose pins an explicit version so a redeploy is deterministic.
+# workflow_dispatch allows a manual rebuild of an existing ref.
+#
+# Runner: GitHub-hosted ubuntu-latest (PUBLIC repo -> fork-safe, per fleet CI
+# policy). Pushes as GITHUB_TOKEN, which is scoped to this repo owner and links
+# the package to the repo automatically.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image-slate-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/skyphusion-labs/slate
+
+jobs:
+  build-push:
+    name: Build and push slate image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
