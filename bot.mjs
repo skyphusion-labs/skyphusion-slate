@@ -19,10 +19,13 @@
 //   DISCORD_HISTORY             rolling history depth in exchange pairs (default 20)
 //   DISCORD_LOG                 tee logs to this file path (optional)
 //   VIVIJURE_API_URL            Vivijure Worker base URL for !render submissions
+//   STUDIO_API_TOKEN            (required when VIVIJURE_API_URL is set) studio bearer token;
+//                               sent as `Authorization: Bearer` on every studio call (vivijure #423)
 //   LLM_API_URL                 skyphusion-llm-public base URL for image generation
 //                               (default https://play.skyphusion.org)
-//   CF_ACCESS_CLIENT_ID         Cloudflare Access service token client ID
-//   CF_ACCESS_CLIENT_SECRET     Cloudflare Access service token client secret
+//   CF_ACCESS_CLIENT_ID         Cloudflare Access service token client ID (optional; additive
+//                               hardening when the studio is also fronted by Cloudflare Access)
+//   CF_ACCESS_CLIENT_SECRET     Cloudflare Access service token client secret (optional)
 //   CF_D1_TOKEN                 Cloudflare API token with D1:Write permission
 //   CF_D1_ACCOUNT_ID            Cloudflare account ID (from env; never hardcode)
 //   CF_D1_DATABASE_ID           D1 database ID (faac1698-5ffe-4f0e-8147-761c0747e957)
@@ -122,6 +125,7 @@ const CFG = {
   trustedBots:          new Set((process.env.TRUSTED_BOT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean)),
   historyLen:           parseInt(process.env.DISCORD_HISTORY ?? '20', 10),
   vivijureUrl:          process.env.VIVIJURE_API_URL        ?? '',
+  studioApiToken:       process.env.STUDIO_API_TOKEN        ?? '',
   llmUrl:               process.env.LLM_API_URL             ?? 'https://play.skyphusion.org',
   cfAccessClientId:     process.env.CF_ACCESS_CLIENT_ID     ?? '',
   cfAccessClientSecret: process.env.CF_ACCESS_CLIENT_SECRET ?? '',
@@ -133,6 +137,13 @@ const CFG = {
   searchUrl:            process.env.SEARCH_WORKER_URL       ?? '',
   searchSecret:         process.env.SEARCH_SECRET           ?? '',
 };
+
+// The studio uses bearer-token auth (vivijure #423). If a studio URL is configured, a token is
+// mandatory -- fail fast rather than fire unauthenticated calls that 401 at render time.
+if (CFG.vivijureUrl && !CFG.studioApiToken) {
+  log('ERROR: STUDIO_API_TOKEN is required when VIVIJURE_API_URL is set (studio bearer auth, vivijure #423)');
+  process.exit(1);
+}
 
 // Anthropic client via CF AI Gateway (native path, not OpenAI compat).
 const anthropicBase = CFG.gatewayEndpoint
@@ -759,7 +770,7 @@ async function fetchRegistry() {
   if (registryCache && Date.now() - registryCache.at < REGISTRY_TTL_MS) return registryCache.data;
   try {
     const res = await fetch(`${CFG.vivijureUrl}/api/modules`, {
-      headers: { 'CF-Access-Client-Id': CFG.cfAccessClientId, 'CF-Access-Client-Secret': CFG.cfAccessClientSecret },
+      headers: studioAuthHeaders(),
     });
     if (!res.ok) { log(`[registry] GET /api/modules ${res.status}`); return registryCache?.data ?? null; }
     const data = await res.json();
@@ -826,16 +837,26 @@ function subtitleEnableField(mod) {
 // Vivijure Cast sync
 // ---------------------------------------------------------------------------
 
+// Auth headers for every Vivijure studio call. STUDIO_API_TOKEN is the shipped auth (vivijure #423
+// token mode); the CF-Access service-token pair is optional additive hardening, sent only when the
+// deployment also fronts the studio with Cloudflare Access. Single source so no studio call can
+// forget the bearer.
+function studioAuthHeaders() {
+  const h = {};
+  if (CFG.studioApiToken) h['Authorization'] = `Bearer ${CFG.studioApiToken}`;
+  if (CFG.cfAccessClientId && CFG.cfAccessClientSecret) {
+    h['CF-Access-Client-Id']     = CFG.cfAccessClientId;
+    h['CF-Access-Client-Secret'] = CFG.cfAccessClientSecret;
+  }
+  return h;
+}
+
 function vivijureHeaders() {
-  return {
-    'Content-Type':            'application/json',
-    'CF-Access-Client-Id':     CFG.cfAccessClientId,
-    'CF-Access-Client-Secret': CFG.cfAccessClientSecret,
-  };
+  return { 'Content-Type': 'application/json', ...studioAuthHeaders() };
 }
 
 async function syncCastMember(castEntry) {
-  if (!CFG.vivijureUrl || !CFG.cfAccessClientId || !CFG.cfAccessClientSecret) return;
+  if (!CFG.vivijureUrl || !CFG.studioApiToken) return;
   const { name, prompt: bible, castId } = castEntry;
 
   if (castId) {
@@ -859,11 +880,11 @@ async function syncCastMember(castEntry) {
 
 // Two-call portrait upload: POST /api/upload (bytes -> R2 key) then POST /api/cast/:id/portrait
 async function uploadPortrait(castId, buffer, mime) {
-  if (!CFG.vivijureUrl || !castId) return false;
+  if (!CFG.vivijureUrl || !CFG.studioApiToken || !castId) return false;
 
   const uploadRes = await fetch(`${CFG.vivijureUrl}/api/upload`, {
     method:  'POST',
-    headers: { 'Content-Type': mime, 'CF-Access-Client-Id': CFG.cfAccessClientId, 'CF-Access-Client-Secret': CFG.cfAccessClientSecret },
+    headers: { 'Content-Type': mime, ...studioAuthHeaders() },
     body:    buffer,
   });
   if (!uploadRes.ok) { log(`[cast] upload failed ${uploadRes.status}`); return false; }
@@ -952,8 +973,8 @@ function buildFilmTitles(rs) {
 // Returns { ok, jobId, status, trims } -- trims lists scenes whose prompt was smart-trimmed so the
 // caller can tell the group what changed (issue #16).
 async function submitToVivijure(brief, opts = {}) {
-  if (!CFG.vivijureUrl || !CFG.cfAccessClientId || !CFG.cfAccessClientSecret) {
-    return { ok: false, error: 'VIVIJURE_API_URL or Access credentials not configured' };
+  if (!CFG.vivijureUrl || !CFG.studioApiToken) {
+    return { ok: false, error: 'VIVIJURE_API_URL or STUDIO_API_TOKEN not configured' };
   }
   const rs = brief.render_settings || emptyRenderSettings();
   // Resolve the tier against the live registry: prefer the explicit opt, then the project's saved
@@ -963,7 +984,7 @@ async function submitToVivijure(brief, opts = {}) {
   const tiers = await getQualityTiers();
   const quality = tiers.some((t) => t.value === requested) ? requested : await getDefaultTier();
 
-  const accessHeaders = { 'CF-Access-Client-Id': CFG.cfAccessClientId, 'CF-Access-Client-Secret': CFG.cfAccessClientSecret };
+  const authHeaders = studioAuthHeaders();
   const characterRefs = buildCharacterRefs(brief);
   const refSlots = new Set(Object.keys(characterRefs));
   const sceneSlots = (slots) => (slots ?? []).filter(slot => refSlots.has(slot));
@@ -994,7 +1015,7 @@ async function submitToVivijure(brief, opts = {}) {
   };
 
   const bundleRes = await fetch(`${CFG.vivijureUrl}/api/storyboard/bundle`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...accessHeaders },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify({ storyboard, characterRefs }),
   });
   if (!bundleRes.ok) {
@@ -1045,7 +1066,7 @@ async function submitToVivijure(brief, opts = {}) {
   }
 
   const filmRes = await fetch(`${CFG.vivijureUrl}/api/render/film`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...accessHeaders },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify(filmBody),
   });
   if (!filmRes.ok) {
@@ -1095,7 +1116,7 @@ async function ensureCharacterRefs(brief, channelId, imageModel) {
 async function checkRenderStatus(jobId) {
   if (!CFG.vivijureUrl) return null;
   const res = await fetch(`${CFG.vivijureUrl}/api/render/film/${jobId}`, {
-    headers: { 'CF-Access-Client-Id': CFG.cfAccessClientId, 'CF-Access-Client-Secret': CFG.cfAccessClientSecret },
+    headers: studioAuthHeaders(),
   });
   if (!res.ok) return null;
   const j = await res.json();
