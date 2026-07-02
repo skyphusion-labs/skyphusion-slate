@@ -2,6 +2,7 @@ name = "vivijure-search"
 main = "src/index.ts"
 compatibility_date = "2025-06-14"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false  # no workers.dev door; self-authenticates + reached by binding/token (defense-in-depth; fleet-chezmoi#46)
 
 [browser]
 binding = "BROWSER"
