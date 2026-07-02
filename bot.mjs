@@ -28,7 +28,7 @@
 //   CF_ACCESS_CLIENT_SECRET     Cloudflare Access service token client secret (optional)
 //   CF_D1_TOKEN                 Cloudflare API token with D1:Write permission
 //   CF_D1_ACCOUNT_ID            Cloudflare account ID (from env; never hardcode)
-//   CF_D1_DATABASE_ID           D1 database ID (faac1698-5ffe-4f0e-8147-761c0747e957)
+//   CF_D1_DATABASE_ID           D1 database ID (from env; never hardcode)
 //   CF_AIG_TOKEN                Cloudflare API token for the AI Gateway (Anthropic path).
 //                               When set the main conversation uses Claude via CF AI Gateway.
 //                               Falls back to ollama when unset.
@@ -131,7 +131,7 @@ const CFG = {
   cfAccessClientSecret: process.env.CF_ACCESS_CLIENT_SECRET ?? '',
   d1Token:              process.env.CF_D1_TOKEN             ?? '',
   d1AccountId:          process.env.CF_D1_ACCOUNT_ID        ?? '',
-  d1DatabaseId:         process.env.CF_D1_DATABASE_ID       ?? 'faac1698-5ffe-4f0e-8147-761c0747e957',
+  d1DatabaseId:         process.env.CF_D1_DATABASE_ID       ?? '',
   aigToken:             process.env.CF_AIG_TOKEN            ?? '',
   gatewayEndpoint:      process.env.CF_GATEWAY_ENDPOINT     ?? '',
   searchUrl:            process.env.SEARCH_WORKER_URL       ?? '',
